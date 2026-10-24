@@ -1,0 +1,146 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Agave Restoration Network</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Didact+Gothic&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <!-- Tall track that gives Act 1 its scroll distance; the scene itself is fixed. -->
+  <div id="scroll-track"></div>
+
+  <div id="viewport">
+    <!-- One rigid 2388x1668 canvas, scaled to cover the window. Every image layer inside is inset:0 and shares the same origin. -->
+    <div id="stage">
+
+      <!-- ACT 1 camera: the only element that is ever scaled. -->
+      <div id="camera">
+        <img class="layer" src="assets/Background 1/USA.png" alt="">
+        <img class="layer state" data-state="1" src="assets/Background 1/State 1.png" alt="">
+        <img class="layer state" data-state="2" src="assets/Background 1/State 2.png" alt="">
+        <img class="layer state" data-state="3" src="assets/Background 1/State 3.png" alt="">
+        <img class="layer state" data-state="4" src="assets/Background 1/State 4.png" alt="">
+        <img class="layer state" data-state="5" src="assets/Background 1/State 5.png" alt="">
+        <img class="layer state" data-state="6" src="assets/Background 1/State 6.png" alt="">
+        <img class="layer state" data-state="7" src="assets/Background 1/State 7.png" alt="">
+        <img class="layer state" data-state="8" src="assets/Background 1/State 8.png" alt="">
+        <img class="layer state" data-state="9" src="assets/Background 1/State 9.png" alt="">
+      </div>
+
+      <!-- ACT 2 map (crossfaded in at the end of Act 1). Every layer is a full-canvas PNG. -->
+      <div id="act2">
+        <img class="layer" src="assets/Background 2/Background.png" alt="">
+        <img class="layer" src="assets/Background 2/States.png" alt="">
+        <!-- Shore.png is the source; the canvas redraws it each frame with travelling waves -->
+        <img class="layer" id="shore-src" src="assets/Background 2/Interactive elements/Shore.png" alt="">
+        <canvas class="layer" id="shore"></canvas>
+        <img class="layer art" id="cave" src="assets/Background 2/Interactive elements/Cave.png" alt="">
+
+        <div class="actor" data-cat="landowners">
+          <img class="layer natural" src="assets/Background 2/Interactive elements/Landowners/Local Communities Natural.png" alt="">
+          <img class="layer hover" src="assets/Background 2/Interactive elements/Landowners/Local Communities Hover.png" alt="">
+        </div>
+        <div class="actor" data-cat="ngos">
+          <img class="layer natural" src="assets/Background 2/Interactive elements/NGOs/NGO natural.png" alt="">
+          <img class="layer hover" src="assets/Background 2/Interactive elements/NGOs/NGO Hover.png" alt="">
+        </div>
+        <div class="actor" data-cat="private">
+          <img class="layer natural" src="assets/Background 2/Interactive elements/Private &amp; Regional Sector/Priv Sector Natural.png" alt="">
+          <img class="layer hover" src="assets/Background 2/Interactive elements/Private &amp; Regional Sector/Priv Sector Hover.png" alt="">
+        </div>
+        <div class="actor" data-cat="government">
+          <img class="layer natural" src="assets/Background 2/Interactive elements/Government/Govt Natural.png" alt="">
+          <img class="layer hover" src="assets/Background 2/Interactive elements/Government/Govt hover.png" alt="">
+        </div>
+        <div class="actor" data-cat="academia">
+          <img class="layer natural" src="assets/Background 2/Interactive elements/Academia &amp; Research/Schools Natural.png" alt="">
+          <img class="layer hover" src="assets/Background 2/Interactive elements/Academia &amp; Research/Schools Hover.png" alt="">
+        </div>
+        <div class="actor" data-cat="donors">
+          <img class="layer natural" src="assets/Background 2/Interactive elements/Foundation &amp; Donors/Donor Natural.png" alt="">
+          <img class="layer hover" src="assets/Background 2/Interactive elements/Foundation &amp; Donors/Donor Hover.png" alt="">
+        </div>
+
+        <img class="layer" id="bat-path" src="assets/Background 2/Interactive elements/NGOs/Bats Pathway.png" alt="">
+        <div id="ngo-bats" aria-hidden="true"></div>
+        <div id="cave-bats" aria-hidden="true"></div>
+      </div>
+
+      <div id="labels" aria-hidden="true"></div>
+      <div id="bats" aria-hidden="true"></div>
+
+    </div>
+
+    <!-- Screen-space overlay: pinned to the window edges, never cropped with the map -->
+      <aside id="narrative" aria-live="polite">
+        <p class="kicker">Agave Restoration Network</p>
+        <div class="line-wrap"><p class="line"></p></div>
+        <ol class="progress"></ol>
+      </aside>
+
+      <div id="scroll-hint">Scroll to explore<span class="chev"></span></div>
+
+      <!-- ===== ACT 2 interface ===== -->
+      <div id="ui">
+        <!-- transparent surface that hit-tests the illustrations by their drawn outlines -->
+        <div id="map-hit"></div>
+
+        <div id="scrim"></div>
+
+        <nav id="cat-nav" aria-label="Network categories"></nav>
+
+        <div id="utils">
+          <button type="button" class="util" id="btn-reset">Reset map</button>
+          <button type="button" class="util" id="btn-start">Back to start</button>
+        </div>
+
+        <section id="panel" class="frame" aria-live="polite" aria-hidden="true">
+          <span class="corner tl"></span><span class="corner tr"></span>
+          <span class="corner bl"></span><span class="corner br"></span>
+          <h2 class="panel-title"><span class="typed"></span><span class="caret"></span></h2>
+          <div class="panel-body">
+            <p class="panel-text"></p>
+            <div class="panel-extra">
+              <p class="partners-label">Partners involved</p>
+              <div class="partners"></div>
+              <button type="button" class="btn-red" id="btn-images">View images</button>
+            </div>
+          </div>
+        </section>
+
+        <button type="button" id="plus" aria-label="About this map" aria-expanded="false">
+          <span></span><span></span>
+        </button>
+
+        <div id="lightbox" class="frame" role="dialog" aria-modal="true" aria-label="Images" aria-hidden="true">
+          <span class="corner tl"></span><span class="corner tr"></span>
+          <span class="corner bl"></span><span class="corner br"></span>
+          <button type="button" class="close-x" id="lb-close" aria-label="Close images"></button>
+          <button type="button" class="chev-btn prev" id="lb-prev" aria-label="Previous image"></button>
+          <figure>
+            <div class="lb-img-wrap"><img id="lb-img" alt=""></div>
+            <figcaption><span id="lb-caption"></span><span id="lb-count"></span></figcaption>
+          </figure>
+          <button type="button" class="chev-btn next" id="lb-next" aria-label="Next image"></button>
+        </div>
+
+        <section id="partner" class="frame" aria-live="polite" aria-hidden="true">
+          <span class="corner tl"></span><span class="corner tr"></span>
+          <span class="corner bl"></span><span class="corner br"></span>
+          <div class="partner-logo"></div>
+          <h3 class="partner-name"></h3>
+          <p class="partner-text"></p>
+          <a class="btn-red" id="partner-link" href="#" target="_blank" rel="noopener">Visit website</a>
+        </section>
+      </div>
+  </div>
+
+  <script src="hitmasks.js"></script>
+  <script src="main.js"></script>
+  <script src="act2.js"></script>
+</body>
+</html>
