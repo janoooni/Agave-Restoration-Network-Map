@@ -1,17 +1,17 @@
 (() => {
   "use strict";
 
-  // ---------- Canvas + camera geometry ----------
-  // All PNGs share one 2388x1668 canvas. The nine Act 1 states (in USA.png's frame)
-  // line up with Act 2's States.png when the Act 1 stack is scaled by ZOOM_END
-  // around FOCUS, measured from the shapes' bounding boxes, so the final Act 1
-  // frame and the Act 2 base land pixel-on-pixel.
+  // ---------- Canvas geometry ----------
+  // Everything is placed in Act 2's 2388x1668 canvas ("map units"). Act 1's art was
+  // drawn zoomed out: a point u in USA.png's frame sits at FOCUS + (u - FOCUS) * ZOOM_END
+  // in map units (measured from the state shapes, so Act 1 lands pixel-on-pixel on Act 2).
   const W = 2388, H = 1668;
   const ZOOM_END = 4.663;
-  const FOCUS = { x: 685.4, y: 1142.2 }; // canvas px
+  const FOCUS = { x: 685.4, y: 1142.2 };
+  const toMap = (x, y) => ({ x: FOCUS.x + (x - FOCUS.x) * ZOOM_END, y: FOCUS.y + (y - FOCUS.y) * ZOOM_END });
 
   const STATES = [
-    // name, centroid in USA.png canvas px
+    // name, centroid in USA.png's frame
     { name: "Arizona",         x: 689, y: 967 },
     { name: "New Mexico",      x: 780, y: 964 },
     { name: "Texas",           x: 878, y: 1022 },
@@ -21,7 +21,7 @@
     { name: "San Luis Potosí", x: 820, y: 1200 },
     { name: "Sonora",          x: 674, y: 1044 },
     { name: "Zacatecas",       x: 786, y: 1186 },
-  ];
+  ].map((s) => ({ name: s.name, ...toMap(s.x, s.y) }));
 
   const LINES = [
     "Across nine states in the southwestern U.S. and northeastern Mexico lies a corridor shared by agave, nectar-feeding bats, and the people who tend this land.",
@@ -41,38 +41,78 @@
   // 0      intro line, all grey
   // 1..9   state k revealed at step k
   // 10     closing line
-  // 10..12 narrative shrinks to bottom-right, Act 2 base crossfades in
+  // 10..12 narrative shrinks to bottom-right, Act 2 crossfades in
   const STEP_CLOSE = 10;
   const ZOOM_FROM = 0.35, ZOOM_TO = 10;
   const TRANS_FROM = 10.6, TRANS_TO = 12;
   const TOTAL_STEPS = 12;
 
-  // Individual bats inside "Bats flying.png" (canvas px: x, y, w, h), found from its alpha channel.
+  // What the camera must keep in view (map units)
+  const u0 = toMap(21, 91), u1 = toMap(2387, 1510);           // whole continent (USA.png land)
+  const VIEW_START = { x0: u0.x, y0: u0.y, x1: u1.x, y1: u1.y };
+  const VIEW_END = { x0: 345, y0: 52, x1: 2080, y1: 1578 };    // the nine states + a small margin
+
+  // Individual bats inside "Bats flying.png" (map units: x, y, w, h), found from its alpha channel.
   const BAT_SPRITES = [
     [1192, 297, 29, 34], [1194, 372, 34, 26], [1219, 280, 44, 22], [1220, 251, 44, 27],
     [1257, 264, 32, 24], [1363, 230, 60, 37], [1415, 191, 86, 60], [1459, 240, 98, 57],
     [1516, 277, 61, 26], [1576, 91, 129, 56], [1577, 180, 88, 82], [1655, 129, 89, 37],
     [1657, 188, 56, 37], [1734, 66, 86, 53],
   ];
-  const BAT_SRC = "assets/Background 2/Interactive elements/NGOs/Bats flying.png";
+  const BATS_LAYER = window.LAYERS.layers.bats; // cropped "Bats flying" art
+
+  // Cut one bat out of the cropped bats image as a CSS sprite
+  function batSprite(el, [x, y, w, h]) {
+    const L = BATS_LAYER;
+    el.style.backgroundImage = `url("${L.src}")`;
+    el.style.backgroundSize = `${(L.w / w) * 100}% ${(L.h / h) * 100}%`;
+    el.style.backgroundPosition = `${((x - L.x) / (L.w - w)) * 100}% ${((y - L.y) / (L.h - h)) * 100}%`;
+  }
 
   const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const isTouch = window.matchMedia("(pointer: coarse)").matches;
 
   // ---------- DOM ----------
   const $ = (s) => document.querySelector(s);
   const track = $("#scroll-track");
+  const svg = $("#act1");
   const stage = $("#stage");
-  const camera = $("#camera");
-  const act2 = $("#act2");
-  const stateImgs = [...document.querySelectorAll("#camera .state")];
   const labelsEl = $("#labels");
   const batsEl = $("#bats");
   const narrative = $("#narrative");
   const lineWrap = $(".line-wrap");
   const progressEl = $(".progress");
   const hint = $("#scroll-hint");
+  const catNav = $("#cat-nav");
+  const utils = $("#utils");
 
-  camera.style.transformOrigin = `${(FOCUS.x / W) * 100}% ${(FOCUS.y / H) * 100}%`;
+  // ---------- Act 1 vector map ----------
+  const NS = "http://www.w3.org/2000/svg";
+  const shapesG = $("#act1-shapes");
+  // shapes are traced in USA.png's frame; this group places them in map units
+  shapesG.setAttribute("transform",
+    `translate(${FOCUS.x * (1 - ZOOM_END)} ${FOCUS.y * (1 - ZOOM_END)}) scale(${ZOOM_END})`);
+  const usaPath = document.createElementNS(NS, "path");
+  usaPath.setAttribute("d", window.ACT1_SHAPES.usa);
+  usaPath.setAttribute("class", "usa");
+  shapesG.appendChild(usaPath);
+  const statePaths = window.ACT1_SHAPES.states.map((d) => {
+    const p = document.createElementNS(NS, "path");
+    p.setAttribute("d", d);
+    p.setAttribute("class", "state");
+    shapesG.appendChild(p);
+    return p;
+  });
+
+  // ---------- Act 2 layers: each file placed on the shared canvas from its crop box ----------
+  document.querySelectorAll("[data-layer]").forEach((el) => {
+    const L = window.LAYERS.layers[el.dataset.layer];
+    el.src = L.src;
+    el.style.left = `${(L.x / W) * 100}%`;
+    el.style.top = `${(L.y / H) * 100}%`;
+    el.style.width = `${(L.w / W) * 100}%`;
+    el.style.height = `${(L.h / H) * 100}%`;
+  });
 
   const labels = STATES.map((s) => {
     const el = document.createElement("div");
@@ -91,44 +131,96 @@
   const range = (v, a, b) => clamp((v - a) / (b - a));
   const lerp = (a, b, t) => a + (b - a) * t;
 
-  // ---------- Fitting the canvas to the window ----------
-  // The stage fills the window when it can, but never crops the part of the map
-  // that matters: the whole continent at the start of Act 1, and the nine
-  // illustrated states (clear of the category buttons) by Act 2. If the window's
-  // shape makes that impossible, thin paper-coloured bands appear instead.
-  const SAFE_START = { x0: 21, y0: 91, x1: 2387, y1: 1510 };  // USA.png land
-  const SAFE_END = { x0: 345, y0: 52, x1: 2080, y1: 1578 };   // States.png + a small margin
-  const catNav = document.querySelector("#cat-nav");
+  // ---------- Camera ----------
+  // A view maps map units to screen px: screen = o + m * s.
+  // Act 1 fits the map beside the narrative box; Act 2 fits it beside the category
+  // buttons and below the top buttons, and fills the window wherever that's possible.
+  let M = {}; // layout measurements, refreshed on resize
 
-  function layoutStage(p) {
+  function measure() {
     const vw = window.innerWidth, vh = window.innerHeight;
-    // keep the map clear of the button column once Act 2's UI is there
-    const navW = catNav.offsetWidth ? catNav.offsetWidth + vw * 0.024 + 12 : 0;
-    const reserve = navW * p;
-    const r = {
-      x0: lerp(SAFE_START.x0, SAFE_END.x0, p), y0: lerp(SAFE_START.y0, SAFE_END.y0, p),
-      x1: lerp(SAFE_START.x1, SAFE_END.x1, p), y1: lerp(SAFE_START.y1, SAFE_END.y1, p),
+    const gap = Math.max(14, vw * 0.02);
+    M = {
+      vw, vh, gap,
+      narrW: narrative.offsetWidth,
+      narrH: narrative.offsetHeight,
+      navW: catNav.offsetWidth + (vw - catNav.getBoundingClientRect().right) + gap,
+      topUI: utils.offsetTop + utils.offsetHeight + gap * 0.5,
+      pad: vh * 0.03,
     };
-    const sFit = Math.min((vw - reserve) / (r.x1 - r.x0), vh / (r.y1 - r.y0));
-    const sCover = Math.max(vw / W, vh / H);
-    const s = Math.min(sFit, sCover);
+    // narrative sits in its own column on the right, vertically centred
+    narrative.style.left = `${vw - gap - M.narrW}px`;
+    narrative.style.top = `${(vh - M.narrH) / 2}px`;
+    M.narrCol = M.narrW + gap * 2;
+    // panels use this to stay clear of the category circles
+    $("#viewport").style.setProperty("--nav-w", `${M.navW}px`);
+  }
+
+  function fit(r, ax0, ay0, ax1, ay1) {
+    // never let a squeezed or hidden window produce a zero or negative area
+    const aw = Math.max(40, ax1 - ax0), ah = Math.max(40, ay1 - ay0);
+    const rw = r.x1 - r.x0, rh = r.y1 - r.y0;
+    const s = Math.min(aw / rw, ah / rh);
+    return {
+      s,
+      ox: ax0 + aw / 2 - ((r.x0 + r.x1) / 2) * s,
+      oy: ay0 + ah / 2 - ((r.y0 + r.y1) / 2) * s,
+    };
+  }
+
+  // Act 1: zoom from the continent to the nine states. Sizes shrink geometrically and
+  // the centre moves in step with the zoom, so it reads as one steady push-in.
+  function act1View(p) {
+    const A = VIEW_START, B = VIEW_END;
+    const aw = A.x1 - A.x0, ah = A.y1 - A.y0, bw = B.x1 - B.x0, bh = B.y1 - B.y0;
+    const rw = aw * Math.pow(bw / aw, p), rh = ah * Math.pow(bh / ah, p);
+    const k = (aw - rw) / (aw - bw);
+    const cx = lerp((A.x0 + A.x1) / 2, (B.x0 + B.x1) / 2, k);
+    const cy = lerp((A.y0 + A.y1) / 2, (B.y0 + B.y1) / 2, k);
+    const r = { x0: cx - rw / 2, x1: cx + rw / 2, y0: cy - rh / 2, y1: cy + rh / 2 };
+    // the narrative's column opens up as the zoom begins, so states never sit under it
+    const reserve = M.narrCol * smooth(range(p, 0, 0.3));
+    return fit(r, 0, M.pad, M.vw - reserve, M.vh - M.pad);
+  }
+
+  // Act 2: whole map visible, clear of the UI; fill the window where the shape allows.
+  function act2View() {
+    const r = VIEW_END;
+    const ax0 = 0, ay0 = M.topUI, ax1 = M.vw - M.navW, ay1 = M.vh;
+    const v = fit(r, ax0, ay0, ax1, ay1);
+    const s = Math.min(v.s, Math.max(M.vw / W, M.vh / H));
+    const place = (centre, coverLo, coverHi, keepLo, keepHi) => {
+      let o = clamp(centre, Math.min(coverLo, coverHi), Math.max(coverLo, coverHi)); // avoid bands
+      return clamp(o, Math.min(keepLo, keepHi), Math.max(keepLo, keepHi));           // never hide the map
+    };
+    const ox = place((ax0 + ax1) / 2 - ((r.x0 + r.x1) / 2) * s, M.vw - W * s, 0, ax0 - r.x0 * s, ax1 - r.x1 * s);
+    const oy = place((ay0 + ay1) / 2 - ((r.y0 + r.y1) / 2) * s, M.vh - H * s, 0, ay0 - r.y0 * s, ay1 - r.y1 * s);
+    return { s, ox, oy };
+  }
+
+  function viewAt(f) {
+    const v1 = act1View(smooth(range(f, ZOOM_FROM, ZOOM_TO)));
+    const t = smooth(range(f, TRANS_FROM, TRANS_TO));
+    if (t <= 0) return v1;
+    const v2 = act2View();
+    return { s: v1.s * Math.pow(v2.s / v1.s, t), ox: lerp(v1.ox, v2.ox, t), oy: lerp(v1.oy, v2.oy, t) };
+  }
+
+  function applyView(v) {
+    const { s, ox, oy } = v;
+    if (!(s > 0) || !isFinite(ox) || !isFinite(oy) || !(M.vw > 0) || !(M.vh > 0)) return;
+    svg.setAttribute("viewBox", `${-ox / s} ${-oy / s} ${M.vw / s} ${M.vh / s}`);
     const sw = W * s, sh = H * s;
-    // centre the safe area in the space left of the buttons, then pull the
-    // stage back over any edge it would otherwise leave uncovered
-    const cx = (r.x0 + r.x1) / 2, cy = (r.y0 + r.y1) / 2;
-    const fitX = (a, lo, hi) => Math.min(Math.max(a, Math.min(lo, hi)), Math.max(lo, hi));
-    const left = fitX((vw - reserve) / 2 - cx * s, 0, vw - sw);
-    const top = fitX(vh / 2 - cy * s, 0, vh - sh);
     stage.style.width = `${sw}px`;
     stage.style.height = `${sh}px`;
-    stage.style.left = `${left}px`;
-    stage.style.top = `${top}px`;
-    // where a band shows, fade that edge of the map into the paper instead of a hard cut
+    stage.style.transform = `translate(${ox}px, ${oy}px)`;
+    // where the map can't reach the window edge, fade that edge into the paper
     const fade = (gap) => (gap > 1 ? "5%" : "0%");
-    stage.style.setProperty("--fl", fade(left));
-    stage.style.setProperty("--fr", fade(vw - left - sw));
-    stage.style.setProperty("--ft", fade(top));
-    stage.style.setProperty("--fb", fade(vh - top - sh));
+    stage.style.setProperty("--fl", fade(ox));
+    stage.style.setProperty("--fr", fade(M.vw - ox - sw));
+    stage.style.setProperty("--ft", fade(oy));
+    stage.style.setProperty("--fb", fade(M.vh - oy - sh));
+    window.AGAVE.view = v;
   }
 
   function sizeTrack() {
@@ -156,32 +248,30 @@
   let revealed = 0;
   function setRevealed(n) {
     if (n === revealed) return;
-    stateImgs.forEach((img, i) => img.classList.toggle("on", i < n));
+    statePaths.forEach((p, i) => p.classList.toggle("on", i < n));
     dots.forEach((d, i) => d.classList.toggle("on", i < n));
     if (n > revealed) {
-      const img = stateImgs[n - 1];
-      img.classList.add("fresh");
-      requestAnimationFrame(() => requestAnimationFrame(() => img.classList.remove("fresh")));
+      // restart the one-shot "landing" animation on the newest state
+      const p = statePaths[n - 1];
+      p.classList.remove("fresh");
+      p.getBoundingClientRect();
+      p.classList.add("fresh");
     }
     if (n >= 1 && n <= 9 && n !== revealed) launchFlock();
     revealed = n;
   }
 
   // ---------- Bats ----------
-  // Each bat is its own sprite cut from the shared PNG via background-position,
-  // so the source file stays untouched.
-  const bats = BAT_SPRITES.map(([x, y, w, h], i) => {
+  // Each bat is its own sprite cut from the shared bats image, so the art stays untouched.
+  const bats = BAT_SPRITES.map((sp) => {
+    const [x, y, w, h] = sp;
     const el = document.createElement("div");
     el.className = "bat";
-    el.style.width = `${(w / W) * 100}%`;
-    el.style.height = `${(h / H) * 100}%`;
-    el.style.backgroundImage = `url("${BAT_SRC}")`;
-    el.style.backgroundSize = `${(W / w) * 100}% ${(H / h) * 100}%`;
-    el.style.backgroundPosition = `${(x / (W - w)) * 100}% ${(y / (H - h)) * 100}%`;
+    batSprite(el, sp);
     batsEl.appendChild(el);
     return {
-      el, w: w / W, h: h / H,
-      // position within the flock, relative to the flock's centre (fraction of stage)
+      el, w, h,
+      // position within the flock, relative to the flock's centre (fraction of the window)
       ox: (x + w / 2 - 1500) / W,
       oy: (y + h / 2 - 220) / H,
       flapHz: 5 + Math.random() * 3,
@@ -191,7 +281,15 @@
     };
   });
 
-  let flight = null; // { start, dur, dir, y0, y1, amp, freq }
+  function sizeBats() {
+    const k = Math.max(M.vw, M.vh * 1.4) / W; // bats keep a natural size on any screen
+    bats.forEach((b) => {
+      b.el.style.width = `${b.w * k}px`;
+      b.el.style.height = `${b.h * k}px`;
+    });
+  }
+
+  let flight = null;
   let flightCount = 0;
 
   function launchFlock() {
@@ -217,45 +315,44 @@
       flight = null;
       return;
     }
-    const sw = stage.clientWidth, sh = stage.clientHeight;
+    const sw = M.vw, sh = M.vh;
+    const k = Math.max(M.vw, M.vh * 1.4) / W;
     for (const b of bats) {
-      const u = clamp((tAll - b.lag) / 1);
+      const u = clamp(tAll - b.lag);
       if (u <= 0 || u >= 1) { b.el.style.opacity = 0; continue; }
-      const e = u; // constant cruise speed
-      const travel = lerp(-0.25, 1.25, e);
+      const travel = lerp(-0.25, 1.25, u);
       const xFrac = flight.dir > 0 ? travel : 1 - travel;
       // irregular, non-linear path: drift + two layered sine wobbles + per-bat jitter
       const yFrac =
-        lerp(flight.y0, flight.y1, e) +
-        Math.sin(e * Math.PI * 2 * flight.freq + flight.seed) * flight.amp +
-        Math.sin(e * Math.PI * 7.3 + b.phase) * b.wob;
-      const x = (xFrac + b.ox * flight.dir) * sw - (b.w * sw) / 2;
-      const y = (yFrac + b.oy) * sh - (b.h * sh) / 2;
+        lerp(flight.y0, flight.y1, u) +
+        Math.sin(u * Math.PI * 2 * flight.freq + flight.seed) * flight.amp +
+        Math.sin(u * Math.PI * 7.3 + b.phase) * b.wob;
+      const x = (xFrac + b.ox * flight.dir) * sw - (b.w * k) / 2;
+      const y = (yFrac + b.oy) * sh - (b.h * k) / 2;
       // wing flap: squash vertically, plus slight bank that follows the wobble
       const flap = 0.45 + 0.55 * Math.abs(Math.cos((now / 1000) * b.flapHz * Math.PI + b.phase));
-      const bank = Math.cos(e * Math.PI * 2 * flight.freq + flight.seed) * 12 * flight.dir;
+      const bank = Math.cos(u * Math.PI * 2 * flight.freq + flight.seed) * 12 * flight.dir;
       b.el.style.opacity = 1;
       b.el.style.transform =
-        `translate(${x}px, ${y}px) rotate(${bank}deg) scale(${flight.dir}, ${flap})`;
+        `translate3d(${x}px, ${y}px, 0) rotate(${bank}deg) scale(${flight.dir}, ${flap})`;
     }
   }
 
   // ---------- Per-frame update ----------
   let lastY = -1;
+  let dirty = true;
 
   function update(now) {
-    const vh = window.innerHeight;
+    const vh = M.vh;
     const y = window.scrollY;
     const f = y / vh; // scroll position in steps
 
-    if (y !== lastY) {
+    if (y !== lastY || dirty) {
       lastY = y;
+      dirty = false;
 
-      // camera zoom: geometric interpolation so the zoom speed feels even
-      const zp = smooth(range(f, ZOOM_FROM, ZOOM_TO));
-      const z = Math.pow(ZOOM_END, zp);
-      layoutStage(zp);
-      camera.style.transform = `scale(${z})`;
+      const v = viewAt(f);
+      applyView(v);
 
       // states + narrative
       const step = Math.floor(f + 0.001);
@@ -268,30 +365,27 @@
         el.classList.toggle("show", i === active);
         if (i === active || el.classList.contains("show")) {
           const s = STATES[i];
-          const sx = FOCUS.x + (s.x - FOCUS.x) * z;
-          const sy = FOCUS.y + (s.y - FOCUS.y) * z;
-          el.style.left = `${(sx / W) * 100}%`;
-          el.style.top = `${(sy / H) * 100}%`;
+          el.style.transform = `translate3d(${v.ox + s.x * v.s}px, ${v.oy + s.y * v.s}px, 0) translate(-50%, -50%)`;
         }
       });
 
       // transition into Act 2: narrative shrinks into the bottom-right corner
       const t = smooth(range(f, TRANS_FROM, TRANS_TO));
-      const sw = window.innerWidth, sh = window.innerHeight; // narrative lives in the window overlay
-      const margin = sw * 0.025;
-      const endScale = 0.42;
+      const margin = M.gap;
       const right = narrative.offsetLeft + narrative.offsetWidth;
       const bottom = narrative.offsetTop + narrative.offsetHeight;
-      const dx = (sw - margin - right) * t;
-      const dy = (sh - margin - bottom) * t;
-      narrative.style.transform = `translate(${dx}px, ${dy}px) scale(${lerp(1, endScale, t)})`;
+      const dx = (M.vw - margin - right) * t;
+      const dy = (M.vh - margin - bottom) * t;
+      narrative.style.transform = `translate(${dx}px, ${dy}px) scale(${lerp(1, 0.42, t)})`;
       narrative.style.opacity = 1 - range(f, 11.4, 11.95);
       narrative.style.visibility = f >= 11.95 ? "hidden" : "visible";
 
-      // Act 2 base crossfades over the (now fully zoomed) Act 1 stack
+      // Act 2 crossfades over the (now fully zoomed) Act 1 map
       const a2 = smooth(range(f, 10.8, 11.8));
-      act2.style.opacity = a2;
-      camera.style.opacity = 1 - a2;
+      stage.style.opacity = a2;
+      stage.style.visibility = a2 > 0 ? "visible" : "hidden"; // nothing to paint during Act 1
+      svg.style.opacity = 1 - a2;
+      svg.style.visibility = a2 < 1 ? "visible" : "hidden";
       const inAct2 = f >= 11.85;
       if (inAct2 !== document.body.classList.contains("act2")) {
         document.body.classList.toggle("act2", inAct2);
@@ -305,11 +399,22 @@
     requestAnimationFrame(update);
   }
 
-  // shared with act2.js
-  window.AGAVE = { W, H, BAT_SPRITES, BAT_SRC, reduceMotion };
+  function relayout() {
+    sizeTrack();
+    measure();
+    sizeBats();
+    // centre the scroll hint under the map, not under the narrative
+    hint.style.left = `${(M.vw - M.narrCol) / 2}px`;
+    dirty = true;
+  }
 
-  sizeTrack();
-  window.addEventListener("resize", () => { sizeTrack(); lastY = -1; });
+  // shared with act2.js
+  window.AGAVE = { W, H, BAT_SPRITES, batSprite, reduceMotion, isTouch, relayout: () => relayout() };
+
+  relayout();
+  window.addEventListener("resize", relayout);
+  window.addEventListener("orientationchange", () => setTimeout(relayout, 250));
+  if (document.fonts && document.fonts.ready) document.fonts.ready.then(relayout);
   setLine(0);
   requestAnimationFrame(update);
   // a first flight over the grey continent on load

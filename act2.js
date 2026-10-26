@@ -1,7 +1,8 @@
 (() => {
   "use strict";
 
-  const { W, H, BAT_SPRITES, BAT_SRC, reduceMotion } = window.AGAVE;
+  const { W, H, BAT_SPRITES, batSprite, reduceMotion, isTouch } = window.AGAVE;
+  const CAVE_URL = "https://www.batcon.org/batsandagave/";
 
   // ---------- Content (placeholder copy: to be replaced with final text) ----------
   const GENERIC = {
@@ -9,43 +10,36 @@
     text: "This is the Agave Restoration Network, a living map of everyone working to restore agave habitat and protect the bats that depend on it across nine states in the U.S. and Mexico. Explore the icons on the right to learn who's involved and how they contribute.",
   };
 
-  const IMAGES = [1, 2, 3, 4, 5, 6, 7].map((n) => `assets/Images/placeholder-${n}.png`);
+  const IMAGES = window.LAYERS.images;
 
-  // focus: the illustration's centre, used as the origin of its hover "pop" (canvas px)
   const CATS = [
     {
       id: "landowners", title: "Landowners", pop: 1.015,
-      focus: { x: 655, y: 470, s: 270 },
       text: "Ranchers, ejidos and rural families who live and work on this land. By planting agave and letting it flower, they create the nectar corridor that migrating bats follow each season.",
       partners: ["Partner 1", "Partner 2", "Partner 3"],
     },
     {
       id: "ngos", title: "NGOs", pop: 1.03,
-      focus: { x: 1230, y: 455, s: 310 },
       text: "Conservation organizations like Bat Conservation International connect the network: monitoring roosts, running restoration projects, and bringing every other partner to the same table.",
       partners: ["Partner 1", "Partner 2", "Partner 3", "Partner 4"],
     },
     {
       id: "private", title: "Private & Regional Sector", pop: 1.04,
-      focus: { x: 1790, y: 570, s: 310 },
       text: "Agave spirits producers, distilleries and regional businesses. Bat-friendly sourcing, such as leaving some agave to flower, lets the industry help sustain the landscape it depends on.",
       partners: ["Partner 1", "Partner 2", "Partner 3"],
     },
     {
       id: "government", title: "Government", pop: 1.04,
-      focus: { x: 1366, y: 880, s: 230 },
       text: "Federal, state and municipal agencies on both sides of the border set land-use policy, protect critical habitat and make cross-border cooperation possible.",
       partners: ["Partner 1", "Partner 2"],
     },
     {
       id: "academia", title: "Academia & Research", pop: 1.06,
-      focus: { x: 1222, y: 1300, s: 190 },
       text: "Universities and research institutes track bat migration, study wild agave populations and measure restoration outcomes. That evidence guides where the network acts next.",
       partners: ["Partner 1", "Partner 2", "Partner 3"],
     },
     {
       id: "donors", title: "Foundations & Donors", pop: 1.04,
-      focus: { x: 1395, y: 640, s: 240 },
       text: "Foundations and individual donors fund nurseries, seed collection and community programs, turning restoration plans into plants in the ground.",
       partners: ["Partner 1", "Partner 2", "Partner 3"],
     },
@@ -118,11 +112,8 @@
   const buttons = {};
   CATS.forEach((c) => {
     const actor = actors[c.id];
-    // pop each illustration from its own centre
+    // each illustration "pops" from the centre of its own (cropped) image
     actor.style.setProperty("--pop", c.pop);
-    actor.querySelectorAll(".layer").forEach((img) => {
-      img.style.transformOrigin = `${(c.focus.x / W) * 100}% ${(c.focus.y / H) * 100}%`;
-    });
 
     const b = document.createElement("button");
     b.type = "button";
@@ -135,16 +126,34 @@
         <defs><mask id="m-${c.id}"><circle class="reveal" cx="50" cy="50" r="49" pathLength="100"/></mask></defs>
         <circle class="dash" cx="50" cy="50" r="49" mask="url(#m-${c.id})"/>
       </svg>`;
-    b.addEventListener("pointerenter", () => setHover("button", c.id));
+    // touch has no hover: a tap goes straight to the click, without a "stuck" hover state
+    b.addEventListener("pointerenter", (e) => { if (e.pointerType !== "touch") setHover("button", c.id); });
     b.addEventListener("pointerleave", () => setHover("button", null));
-    b.addEventListener("focus", () => setHover("button", c.id));
+    b.addEventListener("focus", () => { if (!isTouch) setHover("button", c.id); });
     b.addEventListener("blur", () => setHover("button", null));
     b.addEventListener("click", (e) => { e.stopPropagation(); selectCategory(c.id); });
     nav.appendChild(b);
     buttons[c.id] = b;
   });
-  cave.style.transformOrigin = `${(978 / W) * 100}% ${(842 / H) * 100}%`;
   cave.style.setProperty("--pop", 1.025);
+
+  // Circle labels: shrink each name until it sits comfortably inside its circle
+  function fitLabels() {
+    Object.values(buttons).forEach((b) => {
+      const disc = b.querySelector(".disc");
+      const label = disc.firstElementChild;
+      const inner = disc.clientWidth * 0.78;
+      let size = Math.min(16, disc.clientWidth * 0.13);
+      label.style.fontSize = `${size}px`;
+      while (size > 8 && (label.scrollWidth > inner || label.offsetHeight > inner * 0.8)) {
+        size -= 0.5;
+        label.style.fontSize = `${size}px`;
+      }
+    });
+  }
+  fitLabels();
+  window.addEventListener("resize", fitLabels);
+  if (document.fonts && document.fonts.ready) document.fonts.ready.then(fitLabels);
 
   // ---------- Hover ----------
   function setHover(source, id) {
@@ -165,6 +174,7 @@
   }
 
   mapHit.addEventListener("pointermove", (e) => {
+    if (e.pointerType === "touch") return;
     const k = hitAt(e.clientX, e.clientY);
     if (k !== state.hover.map) {
       state.hover.map = k;
@@ -352,8 +362,8 @@
     }
     if (e.target === mapHit) {
       const k = hitAt(e.clientX, e.clientY);
-      if (k && k !== "cave") return selectCategory(k);
-      if (k === "cave") return; // the cave only plays the bats
+      if (k === "cave") return openCave();
+      if (k) return selectCategory(k);
     }
     if (state.panelOpen && !panel.contains(e.target)) closePanel();
   });
@@ -367,6 +377,11 @@
     } else if (state.mode === "lightbox" && e.key === "ArrowLeft") lbShow(state.lbIndex - 1);
     else if (state.mode === "lightbox" && e.key === "ArrowRight") lbShow(state.lbIndex + 1);
   });
+
+  // ---------- The cave links out to BCI's bats & agave page ----------
+  function openCave() {
+    window.open(CAVE_URL, "_blank", "noopener");
+  }
 
   // ---------- Reset / back to start ----------
   function resetMap() {
@@ -409,9 +424,7 @@
     el.className = "bat";
     el.style.width = `${(w / W) * 100}%`;
     el.style.height = `${(h / H) * 100}%`;
-    el.style.backgroundImage = `url("${BAT_SRC}")`;
-    el.style.backgroundSize = `${(W / w) * 100}% ${(H / h) * 100}%`;
-    el.style.backgroundPosition = `${(x / (W - w)) * 100}% ${(y / (H - h)) * 100}%`;
+    batSprite(el, [x, y, w, h]);
     ngoBatsEl.appendChild(el);
     const home = { x: x + w / 2, y: y + h / 2 };
     // where along the path this bat's drawn position sits
@@ -508,9 +521,7 @@
     el.className = "bat";
     el.style.width = `${(w / W) * 100}%`;
     el.style.height = `${(h / H) * 100}%`;
-    el.style.backgroundImage = `url("${BAT_SRC}")`;
-    el.style.backgroundSize = `${(W / w) * 100}% ${(H / h) * 100}%`;
-    el.style.backgroundPosition = `${(x / (W - w)) * 100}% ${(y / (H - h)) * 100}%`;
+    batSprite(el, [x, y, w, h]);
     caveBatsEl.appendChild(el);
     return { el, w, h, idx: i, start: null };
   });
@@ -566,7 +577,7 @@
   // are pure functions of time, so the loop never has a seam or a jump.
   const shoreSrc = $("#shore-src");
   const shoreCanvas = $("#shore");
-  const act2El = $("#act2");
+  const LIGHT = isTouch; // phones/tablets: lower resolution + frame rate for the water
   const shoreCtx = shoreCanvas.getContext("2d");
   const base = document.createElement("canvas");
   const pass = document.createElement("canvas");
@@ -574,7 +585,7 @@
 
   function sizeShore() {
     if (!shoreSrc.complete || !shoreSrc.naturalWidth) return;
-    const dpr = Math.min(window.devicePixelRatio || 1, 1.5);
+    const dpr = LIGHT ? 1 : Math.min(window.devicePixelRatio || 1, 1.5);
     const w = Math.round(stage.clientWidth * dpr), h = Math.round(stage.clientHeight * dpr);
     for (const c of [shoreCanvas, base, pass]) { c.width = w; c.height = h; }
     base.getContext("2d").drawImage(shoreSrc, 0, 0, w, h);
@@ -586,16 +597,16 @@
   let lastWave = 0;
   function drawWaves(now) {
     requestAnimationFrame(drawWaves);
-    if (!shoreReady || !(parseFloat(act2El.style.opacity) > 0)) return;
-    // the stage is resized as Act 1 zooms; keep the canvas at display resolution
-    const dprNow = Math.min(window.devicePixelRatio || 1, 1.5);
+    if (!shoreReady || !(parseFloat(stage.style.opacity) > 0)) return;
+    // the stage is resized as the camera moves; keep the canvas at display resolution
+    const dprNow = LIGHT ? 1 : Math.min(window.devicePixelRatio || 1, 1.5);
     if (Math.abs(stage.clientWidth * dprNow - shoreCanvas.width) > 4) sizeShore();
-    if (now - lastWave < 1000 / 40) return; // ~40fps is plenty for slow water
+    if (now - lastWave < 1000 / (LIGHT ? 30 : 40)) return; // slow water needs few frames
     lastWave = now;
     const w = shoreCanvas.width, h = shoreCanvas.height;
     const u = w / W;               // canvas px per art px
     const amp = 1.6 * u;           // ripple size in art px (kept subtle)
-    const strip = Math.max(2, Math.round(2 * u));
+    const strip = Math.max(LIGHT ? 3 : 2, Math.round((LIGHT ? 3 : 2) * u));
     const t = reduceMotion ? 0 : now / 1000;
     const swell = Math.sin(t * 0.5) * 1.0 * u; // slow push toward / away from the coast
 
