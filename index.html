@@ -1,0 +1,147 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Agave Restoration Network</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Didact+Gothic&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <!-- Tall track that gives Act 1 its scroll distance; the scene itself is fixed. -->
+  <div id="scroll-track"></div>
+
+  <div id="viewport">
+    <!-- ACT 1: vector map (traced from Background 1/*.png), redrawn crisp at every zoom level.
+         Coordinates are Act 2's 2388x1668 canvas; main.js moves the camera by changing the viewBox. -->
+    <svg id="act1" preserveAspectRatio="none" aria-hidden="true">
+      <g id="act1-shapes"></g>
+    </svg>
+
+    <!-- ACT 2: the illustrated map. Every layer keeps its own file; layers.js places each one
+         on the shared 2388x1668 canvas, so they line up exactly. -->
+    <div id="stage">
+      <div id="act2">
+        <img class="art full" data-layer="background" alt="">
+        <img class="art full" data-layer="states" alt="">
+        <!-- the shore art is the source; the canvas redraws it each frame with gentle waves -->
+        <img class="art full" id="shore-src" data-layer="shore" alt="">
+        <canvas class="art full" id="shore"></canvas>
+        <img class="art" id="cave" data-layer="cave" alt="">
+
+        <div class="actor" data-cat="landowners">
+          <img class="art natural" data-layer="landowners-natural" alt="">
+          <img class="art hover" data-layer="landowners-hover" alt="">
+        </div>
+        <div class="actor" data-cat="ngos">
+          <img class="art natural" data-layer="ngos-natural" alt="">
+          <img class="art hover" data-layer="ngos-hover" alt="">
+        </div>
+        <div class="actor" data-cat="private">
+          <img class="art natural" data-layer="private-natural" alt="">
+          <img class="art hover" data-layer="private-hover" alt="">
+        </div>
+        <div class="actor" data-cat="government">
+          <img class="art natural" data-layer="government-natural" alt="">
+          <img class="art hover" data-layer="government-hover" alt="">
+        </div>
+        <div class="actor" data-cat="academia">
+          <img class="art natural" data-layer="academia-natural" alt="">
+          <img class="art hover" data-layer="academia-hover" alt="">
+        </div>
+        <div class="actor" data-cat="donors">
+          <img class="art natural" data-layer="donors-natural" alt="">
+          <img class="art hover" data-layer="donors-hover" alt="">
+        </div>
+
+        <img class="art" id="bat-path" data-layer="bat-path" alt="">
+        <div id="ngo-bats" aria-hidden="true"></div>
+        <div id="cave-bats" aria-hidden="true"></div>
+      </div>
+    </div>
+
+    <!-- Screen-space overlay: pinned to the window, never scaled with the map -->
+    <div id="labels" aria-hidden="true"></div>
+    <div id="bats" aria-hidden="true"></div>
+
+    <aside id="narrative" aria-live="polite">
+      <p class="kicker">Agave Restoration Network</p>
+      <div class="line-wrap"><p class="line"></p></div>
+      <ol class="progress"></ol>
+    </aside>
+
+    <div id="scroll-hint">Scroll to explore<span class="chev"></span></div>
+
+    <!-- ===== ACT 2 interface ===== -->
+    <div id="ui">
+      <!-- transparent surface that hit-tests the illustrations by their drawn outlines -->
+      <div id="map-hit"></div>
+
+      <div id="scrim"></div>
+
+      <nav id="cat-nav" aria-label="Network categories"></nav>
+
+      <div id="utils">
+        <button type="button" class="util" id="btn-reset">Reset map</button>
+        <button type="button" class="util" id="btn-start">Back to start</button>
+      </div>
+
+      <section id="panel" class="frame" aria-live="polite" aria-hidden="true">
+        <span class="corner tl"></span><span class="corner tr"></span>
+        <span class="corner bl"></span><span class="corner br"></span>
+        <div class="panel-scroll">
+          <h2 class="panel-title"><span class="typed"></span><span class="caret"></span></h2>
+          <div class="panel-body">
+            <p class="panel-text"></p>
+            <div class="panel-extra">
+              <p class="partners-label">Partners involved</p>
+              <div class="partners"></div>
+              <button type="button" class="btn-red" id="btn-images">View images</button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <button type="button" id="plus" aria-label="About this map" aria-expanded="false">
+        <span></span><span></span>
+      </button>
+
+      <div id="lightbox" class="frame" role="dialog" aria-modal="true" aria-label="Images" aria-hidden="true">
+        <span class="corner tl"></span><span class="corner tr"></span>
+        <span class="corner bl"></span><span class="corner br"></span>
+        <button type="button" class="close-x" id="lb-close" aria-label="Close images"></button>
+        <button type="button" class="chev-btn prev" id="lb-prev" aria-label="Previous image"></button>
+        <figure>
+          <div class="lb-img-wrap"><img id="lb-img" alt=""></div>
+          <figcaption><span id="lb-caption"></span><span id="lb-count"></span></figcaption>
+        </figure>
+        <button type="button" class="chev-btn next" id="lb-next" aria-label="Next image"></button>
+      </div>
+
+      <section id="partner" class="frame" aria-live="polite" aria-hidden="true">
+        <span class="corner tl"></span><span class="corner tr"></span>
+        <span class="corner bl"></span><span class="corner br"></span>
+        <div class="partner-logo"></div>
+        <h3 class="partner-name"></h3>
+        <p class="partner-text"></p>
+        <a class="btn-red" id="partner-link" href="#" target="_blank" rel="noopener">Visit website</a>
+      </section>
+    </div>
+  </div>
+
+  <!-- Phones held upright: the map needs a wide screen -->
+  <div id="rotate" role="alert">
+    <div class="rotate-phone" aria-hidden="true"><span></span></div>
+    <p>Please rotate your phone</p>
+    <p class="rotate-sub">The Agave Restoration Network map is best explored in landscape.</p>
+  </div>
+
+  <script src="layers.js"></script>
+  <script src="hitmasks.js"></script>
+  <script src="act1-shapes.js"></script>
+  <script src="main.js"></script>
+  <script src="act2.js"></script>
+</body>
+</html>
